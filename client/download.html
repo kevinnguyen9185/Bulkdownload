@@ -1,0 +1,104 @@
+<input type="button" id="stream" value="Stream & Download" />
+<input type="button" id="normal" value="Normal Download" />
+<script type="text/javascript">
+    var concurrentThread = 6;
+    var maxNoRetries = 4;
+    var blobs = [];
+    var isAllThreadsDone = false;
+
+    const getChunkContent = function(url, maxRetries) {
+        return fetch(url + '/' + maxRetries).then(res=>{
+            if (res.ok) return res.blob();
+            else {
+                if (maxRetries>0){
+                    setTimeout(function(){
+                        getChunkContent(url, maxRetries-1);
+                    }, 500);
+                }
+            }
+        })
+        .catch(err=>{
+            return err;
+        });
+    } 
+
+    function downloadNormal(){
+        var link = document.createElement("a");
+        link.download = 'downloadnormal';
+        link.href = 'http://localhost:1234/downloadnormal';
+        link.click();
+    }
+
+    function downloadFile(){
+        fetch('http://localhost:1234/filelength')
+            .then(function(res){
+                return res.json();
+            })
+            .then(function(json){
+                var fLen = json.len;
+                var chunkSize = 1024*1024;
+                var counter = chunkSize;
+                var urls = [];
+
+                for (i=chunkSize;i<fLen+chunkSize;i=i+chunkSize){
+                    var s = i-chunkSize;
+                    var e = i-1;
+                    if(i>fLen){
+                        e= fLen-1;
+                    }
+                    var url = "http://localhost:1234/"+s+"/"+e;
+                    urls.push(url);
+                }
+                
+                urls = urls.reverse();
+                downloadChunks(urls);
+            });
+
+        var tSaveAs = setInterval(()=>{
+            if(isAllThreadsDone){
+                saveAs();
+                clearInterval(tSaveAs);
+            }
+        }, 500);
+    }
+
+    function downloadChunks(urls){
+        tempUrls = []
+        for (var i = 0 ;i< concurrentThread;i++){
+            var url = urls.pop();
+            if(url){
+                tempUrls.push(url);
+            }
+        }
+        Promise
+            .all(tempUrls.map(url=>getChunkContent(url, maxNoRetries)))
+            .then((values) => {
+                if (values.length == tempUrls.length){
+                    values.forEach(value=>{
+                        blobs.push(value)
+                    });
+                    console.log('Download next array chunks');
+                    if(urls.length>0){
+                        downloadChunks(urls);
+                    } else {
+                        isAllThreadsDone = true;
+                    }
+                }
+            });
+    }
+
+    function saveAs(){
+        var file = new File(blobs, 'download_stream');
+        link = document.createElement('a')
+        link.href = URL.createObjectURL(file) // DOES NOT WORK
+        link.download = 'download stream'
+        link.click() // Save
+    }
+
+    document.getElementById('stream').onclick = function(){
+        downloadFile();
+    }
+    document.getElementById('normal').onclick = function(){
+        downloadNormal();
+    }
+</script>
